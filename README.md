@@ -11,6 +11,8 @@ Tiny11 Automated Builder provides PowerShell scripts to create minimized Windows
 
 **🙏 Attribution**: This project is based on the original tiny11 builder by [ntdevlabs](https://github.com/ntdevlabs). The headless versions were created to enable automated CI/CD builds while preserving all original functionality.
 
+**📥 Downloads**: Pre-built ISO releases are available exclusively on [SourceForge](https://sourceforge.net/projects/tiny-11-releases/files/). (GitHub Releases contains release notes only, not ISO files)
+
 **⚠️ Important Legal Notice**: These scripts are for educational and testing purposes only. You must have a valid Windows license. Using modified Windows images may violate Microsoft's terms of service.
 
 ## 🚀 Quick Start
@@ -257,7 +259,8 @@ Use responsibly and at your own risk.
 - **Original Project:** https://github.com/ntdevlabs/tiny11builder
 - **This Repository:** https://github.com/kelexine/tiny11-automated
 - **Issues:** https://github.com/kelexine/tiny11-automated/issues
-- **Releases:** https://github.com/kelexine/tiny11-automated/releases
+- **GitHub Releases:** https://github.com/kelexine/tiny11-automated/releases (release notes only)
+- **SourceForge Distribution:** https://sourceforge.net/projects/tiny-11-releases/files/ (actual ISO downloads - primary source)
 
 ---
 
