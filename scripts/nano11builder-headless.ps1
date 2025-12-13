@@ -353,8 +353,12 @@ function Remove-BloatwareApps {
     $removeCount = 0
     foreach ($package in $packagesToRemove) {
         Write-Log "Removing: $($package.DisplayName)"
-        Remove-AppxProvisionedPackage -Path $scratchDir -PackageName $package.PackageName -ErrorAction SilentlyContinue
-        $removeCount++
+        try {
+            Remove-AppxProvisionedPackage -Path $scratchDir -PackageName $package.PackageName -ErrorAction Stop | Out-Null
+            $removeCount++
+        } catch {
+            Write-Log "Could not remove $($package.DisplayName): $($_.Exception.Message)" "WARN"
+        }
     }
 
     # Clean up leftover WindowsApps folders
