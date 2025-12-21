@@ -402,11 +402,17 @@ def main():
     # Generate matrix
     matrix = detector.generate_matrix(new_releases)
     
-    # Write outputs for GitHub Actions
+    # Prepare data for GitHub Actions output
+    # Use compact JSON to avoid multi-line issues
+    new_releases_json = json.dumps([asdict(r) for r in new_releases], separators=(',', ':'))
+    matrix_json = json.dumps(matrix, separators=(',', ':'))
+    
+    # Write outputs for GitHub Actions (single line format)
     with open(args.output, 'w') as f:
         f.write("has_new=true\n")
-        f.write(f"new_releases={json.dumps([asdict(r) for r in new_releases])}\n")
-        f.write(f"releases_matrix={json.dumps(matrix)}\n")
+        f.write(f"new_releases={new_releases_json}\n")
+        f.write(f"releases_matrix={matrix_json}\n")
+        f.write(f"release_count={len(new_releases)}\n")
     
     logger.info("✅ Detection complete!")
     return 0

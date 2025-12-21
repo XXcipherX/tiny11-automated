@@ -60,10 +60,14 @@ jobs:
       - name: Fetch Current Tracked Releases
         id: fetch_tracked
         run: |
+          # GitHub Actions output doesn't handle large multi-line JSON well
+          # We'll just check if file exists for now
           if [ -f "${{ env.RELEASE_TRACKING_FILE }}" ]; then
-            echo "tracked_data=$(cat ${{ env.RELEASE_TRACKING_FILE }})" >> $GITHUB_OUTPUT
+            echo "has_tracking=true" >> $GITHUB_OUTPUT
+            echo "📋 Found existing tracking file"
           else
-            echo "tracked_data={}" >> $GITHUB_OUTPUT
+            echo "has_tracking=false" >> $GITHUB_OUTPUT
+            echo "📋 No existing tracking file"
           fi
       
       - name: Check for New Releases
@@ -71,130 +75,27 @@ jobs:
         env:
           FORCE_CHECK: ${{ github.event.inputs.force_check || 'false' }}
         run: |
-          python3 << 'EOF'
-          import os
-          import json
-          import requests
-          from datetime import datetime
+          # Run the Python detector script
+          python3 scripts/release_detector.py \
+            --force=${{ env.FORCE_CHECK }} \
+            --output=detector_output.txt \
+            --tracking-file=${{ env.RELEASE_TRACKING_FILE }}
           
-          # Configuration
-          UUPDUMP_API = os.environ['UUPDUMP_API']
-          FORCE_CHECK = os.environ.get('FORCE_CHECK', 'false').lower() == 'true'
-          
-          # Windows editions to monitor
-          EDITIONS = ['Professional', 'Home', 'Education', 'Pro N']
-          CHANNELS = ['retail', 'insider']
-          
-          print("🔍 Checking for new Windows 11 releases...")
-          
-          try:
-              # Fetch latest builds from UUP Dump API
-              response = requests.get(f"{UUPDUMP_API}/listid.php", params={
-                  'search': 'Windows 11',
-                  'sortByDate': '1'
-              })
-              response.raise_for_status()
-              builds = response.json()
-              
-              # Load previously tracked releases
-              tracked_file = os.environ.get('RELEASE_TRACKING_FILE', 'tracked_releases.json')
-              try:
-                  with open(tracked_file, 'r') as f:
-                      tracked = json.load(f)
-              except FileNotFoundError:
-                  tracked = {'builds': {}, 'last_check': None}
-              
-              new_releases = []
-              releases_matrix = []
-              
-              # Process builds
-              for build in builds.get('response', {}).get('builds', [])[:20]:  # Check top 20
-                  build_id = build.get('uuid')
-                  build_num = build.get('build')
-                  title = build.get('title', '')
-                  arch = build.get('arch', 'amd64')
-                  
-                  # Filter for x64 Windows 11 only
-                  if 'Windows 11' not in title or arch != 'amd64':
-                      continue
-                  
-                  # Extract version info
-                  version = 'Unknown'
-                  if '24H2' in title:
-                      version = '24H2'
-                  elif '25H2' in title:
-                      version = '25H2'
-                  elif '23H2' in title:
-                      version = '23H2'
-                  
-                  # Check if this is a new build
-                  if build_id not in tracked.get('builds', {}) or FORCE_CHECK:
-                      print(f"✨ New release detected: {title} (Build {build_num})")
-                      
-                      # Attempt to get download URL
-                      try:
-                          detail_resp = requests.get(f"{UUPDUMP_API}/get.php", params={
-                              'id': build_id,
-                              'pack': 'en-us',
-                              'edition': 'professional'
-                          })
-                          detail_data = detail_resp.json()
-                          
-                          # Generate ISO URL (UUP Dump format)
-                          iso_url = f"https://uupdump.net/download.php?id={build_id}&pack=en-us&edition=professional"
-                          
-                          release_info = {
-                              'build_id': build_id,
-                              'build_number': build_num,
-                              'version': version,
-                              'title': title,
-                              'iso_url': iso_url,
-                              'detected_date': datetime.now().isoformat(),
-                              'architecture': arch
-                          }
-                          
-                          new_releases.append(release_info)
-                          releases_matrix.append({
-                              'version': version,
-                              'build': build_num,
-                              'iso_url': iso_url,
-                              'title': title.replace(' ', '_').replace('(', '').replace(')', '')
-                          })
-                          
-                          # Mark as tracked
-                          tracked['builds'][build_id] = release_info
-                          
-                      except Exception as e:
-                          print(f"⚠️  Error fetching details for {build_id}: {e}")
-                          continue
-              
-              # Update tracking file
-              tracked['last_check'] = datetime.now().isoformat()
-              with open(tracked_file, 'w') as f:
-                  json.dump(tracked, f, indent=2)
-              
-              # Set outputs
-              has_new = 'true' if new_releases else 'false'
-              
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"new_releases={json.dumps(new_releases)}\n")
-                  f.write(f"releases_matrix={json.dumps(releases_matrix)}\n")
-                  f.write(f"has_new={has_new}\n")
-              
-              if new_releases:
-                  print(f"\n✅ Found {len(new_releases)} new release(s)!")
-                  for rel in new_releases:
-                      print(f"  - {rel['title']} (Build {rel['build_number']})")
-              else:
-                  print("\n📭 No new releases detected.")
-              
-          except Exception as e:
-              print(f"❌ Error during release check: {e}")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write("has_new=false\n")
-                  f.write("new_releases=[]\n")
-                  f.write("releases_matrix=[]\n")
-          EOF
+          # Read outputs from file and set GitHub Actions outputs
+          if [ -f "detector_output.txt" ]; then
+            # Read each line and set as output
+            while IFS='=' read -r key value; do
+              # Skip empty lines
+              if [ -n "$key" ]; then
+                echo "$key=$value" >> $GITHUB_OUTPUT
+                echo "Set output: $key (length: ${#value})"
+              fi
+            done < detector_output.txt
+          else
+            echo "❌ Detector output file not found!"
+            echo "has_new=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
       
       - name: Commit Updated Tracking File
         if: steps.check.outputs.has_new == 'true'
