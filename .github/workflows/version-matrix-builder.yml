@@ -28,8 +28,6 @@ permissions:
   actions: write       # For triggering other workflows
 
 env:
-  # Windows release monitoring endpoints
-  UUPDUMP_API: 'https://api.uupdump.net'
   RELEASE_TRACKING_FILE: 'tracked_releases.json'
   
 jobs:
@@ -157,12 +155,25 @@ jobs:
       
       - name: Commit Updated Tracking File
         if: steps.check.outputs.has_new == 'true'
+        id: commit_tracking
         run: |
           git config user.name "Version Matrix Bot"
           git config user.email "bot@kelexine.dev"
           git add ${{ env.RELEASE_TRACKING_FILE }}
-          git commit -m "🤖 Update tracked releases - $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
-          git push origin main || echo "Push failed, continuing..."
+          
+          if git commit -m "🤖 Update tracked releases - $(date -u +'%Y-%m-%d %H:%M UTC')"; then
+            echo "commit_made=true" >> $GITHUB_OUTPUT
+            if git push origin main; then
+              echo "push_success=true" >> $GITHUB_OUTPUT
+              echo "✅ Tracking file committed and pushed successfully"
+            else
+              echo "push_success=false" >> $GITHUB_OUTPUT
+              echo "⚠️ Push failed - may need manual sync"
+            fi
+          else
+            echo "commit_made=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No changes to commit"
+          fi
       
       - name: Send Discord Notification - New Releases
         if: steps.check.outputs.has_new == 'true'
@@ -178,11 +189,21 @@ jobs:
         if: steps.check.outputs.has_new == 'true'
         id: create_issues
         uses: actions/github-script@v7
-        continue-on-error: true  # Don't fail workflow if issue creation fails
+        continue-on-error: true
+        env:
+          NEW_RELEASES_JSON: ${{ steps.check.outputs.new_releases }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const newReleases = JSON.parse('${{ steps.check.outputs.new_releases }}');
+            // Safely parse JSON using base64 to avoid quote issues
+            const releasesJson = process.env.NEW_RELEASES_JSON || '[]';
+            let newReleases;
+            try {
+              newReleases = JSON.parse(releasesJson);
+            } catch (e) {
+              console.error('Failed to parse releases JSON:', e.message);
+              newReleases = [];
+            }
             
             console.log(`📝 Creating ${newReleases.length} issue(s)...`);
             
@@ -190,49 +211,47 @@ jobs:
             let failed = 0;
             
             for (const release of newReleases) {
-              const issueBody = `
-                ## 🎉 New Windows Release Detected
+              const issueBody = `## 🎉 New Windows Release Detected
 
-                **Build Information:**
-                - **Title:** ${release.title}
-                - **Build Number:** ${release.build_number}
-                - **Version:** ${release.version}
-                - **Architecture:** ${release.architecture}
-                - **Detection Date:** ${release.detected_date}
+            **Build Information:**
+            - **Title:** ${release.title}
+            - **Build Number:** ${release.build_number}
+            - **Version:** ${release.version}
+            - **Architecture:** ${release.architecture}
+            - **Detection Date:** ${release.detected_date}
 
-                **ISO Source:**
-                - ${release.iso_url}
+            **ISO Source:**
+            - ${release.iso_url}
 
-                **Automated Actions:**
-                - [ ] Trigger Tiny11 Standard build
-                - [ ] Trigger Tiny11 Core build
-                - [ ] Trigger Nano11 build
-                - [ ] Test builds in VM
-                - [ ] Upload to SourceForge
+            **Automated Actions:**
+            - [ ] Trigger Tiny11 Standard build
+            - [ ] Trigger Tiny11 Core build
+            - [ ] Trigger Nano11 build
+            - [ ] Test builds in VM
+            - [ ] Upload to SourceForge
 
-                ---
-                *This issue was automatically created by the Version Matrix Builder*
-                              `.trim();
-                              
-                              try {
-                                const issue = await github.rest.issues.create({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  title: `🆕 New Windows ${release.version} Release - Build ${release.build_number}`,
-                                  body: issueBody,
-                                  labels: ['automated', 'new-release', 'build-pending']
-                                });
-                                
-                                console.log(`✅ Created issue #${issue.data.number}: ${release.title}`);
-                                created++;
-                              } catch (error) {
-                                console.error(`❌ Failed to create issue for ${release.title}: ${error.message}`);
-                                failed++;
-                                // Continue with other releases even if one fails
-                              }
-                            }
-                            
-                            console.log(`✅ Issue creation completed: ${created} created, ${failed} failed`);
+            ---
+            *This issue was automatically created by the Version Matrix Builder*
+            `.trim();
+            
+              try {
+                const issue = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `🆕 New Windows ${release.version} Release - Build ${release.build_number}`,
+                  body: issueBody,
+                  labels: ['automated', 'new-release', 'build-pending']
+                });
+                
+                console.log(`✅ Created issue #${issue.data.number}: ${release.title}`);
+                created++;
+              } catch (error) {
+                console.error(`❌ Failed to create issue for ${release.title}: ${error.message}`);
+                failed++;
+              }
+            }
+            
+            console.log(`✅ Issue creation completed: ${created} created, ${failed} failed`);
                       
       - name: Summary of Issue Creation
         if: steps.check.outputs.has_new == 'true'
@@ -249,11 +268,11 @@ jobs:
   trigger-builds:
     name: Trigger Automated Builds
     needs: detect-releases
-    if: needs.detect-releases.outputs.has_new == 'true' && github.event.inputs.skip_build != 'true'
+    if: needs.detect-releases.outputs.has_new == 'true' && (github.event_name == 'schedule' || github.event.inputs.skip_build != 'true')
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        release: "${{ fromJson(needs.detect-releases.outputs.releases_matrix) }}"
+        release: ${{ fromJson(needs.detect-releases.outputs.releases_matrix) }}
         build_type: ['standard', 'core', 'nano']
         edition: [1, 6]  # Home and Pro
     
@@ -288,26 +307,51 @@ jobs:
                 windows_iso_url: release.iso_url,
                 image_index: edition.toString(),
                 skip_cleanup: 'false',
-                windows_version: release.version
+                windows_version: release.version,
+                language: 'English'
               }
             });
             
             console.log(`✅ Build triggered successfully!`);
 
   notify-completion:
-    name: Send Notification
+    name: Send Completion Notification
     needs: [detect-releases, trigger-builds]
     if: always() && needs.detect-releases.outputs.has_new == 'true'
     runs-on: ubuntu-latest
     
     steps:
-      - name: Send Notification
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Dependencies
+        run: pip install requests
+      
+      - name: Send Discord Notification
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_RELEASES }}
+          BUILDS_RESULT: ${{ needs.trigger-builds.result }}
+          NEW_RELEASES: ${{ needs.detect-releases.outputs.new_releases }}
         run: |
           echo "📢 Version Matrix Builder completed!"
           echo "New releases detected: ${{ needs.detect-releases.outputs.has_new }}"
-          echo "Builds triggered: ${{ needs.trigger-builds.result }}"
+          echo "Builds triggered: $BUILDS_RESULT"
           
-          # Add Discord/Slack/Email notification here if needed
-          # Example with webhook:
-          # curl -X POST $WEBHOOK_URL -H 'Content-Type: application/json' \
-          #   -d '{"content":"🎉 New Windows release detected and builds triggered!"}'
+          # Send Discord notification
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            python3 scripts/discord_notify.py \
+              --webhook "$DISCORD_WEBHOOK" \
+              --type builds-triggered \
+              --data "{\"builds_result\":\"$BUILDS_RESULT\",\"releases\":$NEW_RELEASES}" || echo "Discord notification failed"
+          else
+            echo "⚠️ DISCORD_WEBHOOK_RELEASES not configured, skipping notification"
+          fi
