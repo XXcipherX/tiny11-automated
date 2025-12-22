@@ -54,20 +54,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Discord - Build Started
-        continue-on-error: true
-        run: |
-          python scripts/discord_notify.py `
-            --webhook "$env:DISCORD_WEBHOOK" `
-            --type build-started `
-            --data (ConvertTo-Json @{
-              version = "${{ inputs.windows_version }}"
-              build_type = "${{ matrix.build_type }}"
-              edition = "${{ matrix.edition_name }}"
-            } -Compress)
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BUILDS }}
-        shell: pwsh
 
       - name: Generate release tag and ISO name
         shell: powershell
@@ -104,6 +90,22 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_TAG=$baseTag"
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_FILENAME=$isoName"
           Add-Content -Path $env:GITHUB_ENV -Value "FOLDER_NAME=$folderName"
+          Add-Content -Path $env:GITHUB_ENV -Value "EDITION_NAME=$edition"
+
+      - name: Discord - Build Started
+        continue-on-error: true
+        run: |
+          python scripts/discord_notify.py `
+            --webhook "$env:DISCORD_WEBHOOK" `
+            --type build-started `
+            --data (ConvertTo-Json @{
+              version = "${{ inputs.windows_version }}"
+              build_type = "Nano"
+              edition = "$env:EDITION_NAME"
+            } -Compress)
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BUILDS }}
+        shell: pwsh
 
       - name: System information
         shell: powershell
@@ -395,8 +397,8 @@ jobs:
             --type build-completed `
             --data (ConvertTo-Json @{
               version = "${{ inputs.windows_version }}"
-              build_type = "${{ matrix.build_type }}"
-              edition = "${{ matrix.edition_name }}"
+              build_type = "Nano"
+              edition = "$env:EDITION_NAME"
               duration = "Completed"
               iso_size = $isoSize
               download_url = "https://sourceforge.net/projects/tiny-11-releases/"
@@ -678,8 +680,8 @@ jobs:
             --type build-failed `
             --data (ConvertTo-Json @{
               version = "${{ inputs.windows_version }}"
-              build_type = "${{ matrix.build_type }}"
-              edition = "${{ matrix.edition_name }}"
+              build_type = "Nano"
+              edition = "$env:EDITION_NAME"
               error = "Build failed - check logs for details"
               logs_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             } -Compress)

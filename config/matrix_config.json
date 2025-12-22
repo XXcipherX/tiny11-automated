@@ -4,7 +4,6 @@
   "description": "Configuration and tracking schema for automated Windows release detection",
   "version": "1.0.0",
   "author": "kelexine (https://github.com/kelexine)",
-  
   "config": {
     "monitoring": {
       "enabled": true,
@@ -16,13 +15,17 @@
           "api_url": "https://api.uupdump.net",
           "timeout_seconds": 30,
           "max_results": 30,
-          "architectures": ["amd64"],
-          "languages": ["en-us"]
+          "architectures": [
+            "amd64"
+          ],
+          "languages": [
+            "en-us"
+          ]
         },
-        "microsoft_catalog": {
-          "enabled": false,
-          "api_url": "https://www.catalog.update.microsoft.com",
-          "note": "Requires web scraping - not yet implemented"
+        "microsoft_direct": {
+          "enabled": true,
+          "method": "playwright",
+          "note": "Direct ISO links via Playwright browser automation - PRIMARY SOURCE"
         },
         "github_mirrors": {
           "enabled": false,
@@ -31,16 +34,22 @@
         }
       }
     },
-    
     "filtering": {
-      "windows_versions": ["24H2", "25H2", "26H2"],
+      "windows_versions": [
+        "24H2",
+        "25H2",
+        "26H2"
+      ],
       "exclude_insider": false,
       "exclude_canary": true,
       "min_build_number": 22000,
-      "architectures": ["amd64"],
-      "languages": ["en-us"]
+      "architectures": [
+        "amd64"
+      ],
+      "languages": [
+        "en-us"
+      ]
     },
-    
     "build_triggers": {
       "auto_trigger_enabled": true,
       "trigger_on_detection": true,
@@ -49,30 +58,42 @@
         "standard": {
           "enabled": true,
           "workflow": "build-tiny11.yml",
-          "editions": [1, 6],
+          "editions": [
+            1,
+            6
+          ],
           "priority": 1
         },
         "core": {
           "enabled": true,
           "workflow": "build-tiny11-core.yml",
-          "editions": [1, 6],
+          "editions": [
+            1,
+            6
+          ],
           "priority": 2,
           "enable_dotnet35": false
         },
         "nano": {
           "enabled": true,
           "workflow": "build-nano11.yml",
-          "editions": [1, 6],
+          "editions": [
+            1,
+            6
+          ],
           "priority": 3
         }
       }
     },
-    
     "notifications": {
       "github_issues": {
         "enabled": true,
         "auto_create": true,
-        "labels": ["automated", "new-release", "build-pending"],
+        "labels": [
+          "automated",
+          "new-release",
+          "build-pending"
+        ],
         "assignees": []
       },
       "discord": {
@@ -92,7 +113,6 @@
         "recipients": []
       }
     },
-    
     "distribution": {
       "sourceforge": {
         "enabled": true,
@@ -106,15 +126,21 @@
         "attach_checksums": true
       }
     },
-    
     "testing": {
       "auto_test_enabled": false,
-      "vm_platforms": ["virtualbox", "vmware", "hyperv"],
-      "test_suites": ["boot", "install", "basic_functionality"],
+      "vm_platforms": [
+        "virtualbox",
+        "vmware",
+        "hyperv"
+      ],
+      "test_suites": [
+        "boot",
+        "install",
+        "basic_functionality"
+      ],
       "test_timeout_minutes": 60
     }
   },
-  
   "tracking_schema": {
     "type": "object",
     "properties": {
@@ -152,12 +178,19 @@
             },
             "architecture": {
               "type": "string",
-              "enum": ["amd64", "arm64"],
+              "enum": [
+                "amd64",
+                "arm64"
+              ],
               "description": "CPU architecture"
             },
             "channel": {
               "type": "string",
-              "enum": ["retail", "insider", "canary"],
+              "enum": [
+                "retail",
+                "insider",
+                "canary"
+              ],
               "description": "Release channel"
             },
             "language": {
@@ -166,29 +199,47 @@
               "description": "ISO language"
             },
             "checksum_sha256": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "description": "SHA256 hash if available"
             },
             "size_bytes": {
-              "type": ["integer", "null"],
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "ISO size in bytes"
             },
             "builds_triggered": {
               "type": "object",
               "description": "Track which builds were triggered",
               "properties": {
-                "standard": {"type": "boolean"},
-                "core": {"type": "boolean"},
-                "nano": {"type": "boolean"}
+                "standard": {
+                  "type": "boolean"
+                },
+                "core": {
+                  "type": "boolean"
+                },
+                "nano": {
+                  "type": "boolean"
+                }
               }
             },
             "builds_completed": {
               "type": "object",
               "description": "Track which builds completed successfully",
               "properties": {
-                "standard": {"type": "boolean"},
-                "core": {"type": "boolean"},
-                "nano": {"type": "boolean"}
+                "standard": {
+                  "type": "boolean"
+                },
+                "core": {
+                  "type": "boolean"
+                },
+                "nano": {
+                  "type": "boolean"
+                }
               }
             }
           },
@@ -204,7 +255,10 @@
         }
       },
       "last_check": {
-        "type": ["string", "null"],
+        "type": [
+          "string",
+          "null"
+        ],
         "format": "date-time",
         "description": "Last time releases were checked"
       },
@@ -231,9 +285,12 @@
         }
       }
     },
-    "required": ["builds", "last_check", "check_count"]
+    "required": [
+      "builds",
+      "last_check",
+      "check_count"
+    ]
   },
-  
   "example_tracking_data": {
     "builds": {
       "abc123-def456": {
@@ -268,13 +325,15 @@
       "updated": "2025-12-21T09:26:00Z"
     }
   },
-  
   "github_actions_outputs": {
     "description": "Expected outputs for GitHub Actions integration",
     "outputs": {
       "has_new": {
         "type": "string",
-        "enum": ["true", "false"],
+        "enum": [
+          "true",
+          "false"
+        ],
         "description": "Whether new releases were detected"
       },
       "new_releases": {
@@ -287,7 +346,6 @@
       }
     }
   },
-  
   "notes": {
     "author": "kelexine",
     "github": "https://github.com/kelexine/tiny11-automated",

@@ -11,10 +11,20 @@ import sys
 import json
 import logging
 import requests
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 from pathlib import Path
+
+# Import Microsoft Playwright downloader (replaces old scraper)
+try:
+    from microsoft_direct_downloader import MicrosoftPlaywrightDownloader
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from microsoft_direct_downloader import MicrosoftPlaywrightDownloader
 
 # Configure logging
 logging.basicConfig(
@@ -46,11 +56,7 @@ class ReleaseDetector:
     def __init__(self, tracking_file: str = "tracked_releases.json"):
         self.tracking_file = Path(tracking_file)
         self.tracked_data = self._load_tracked()
-        self.sources = [
-            self._check_uupdump,
-            self._check_microsoft_catalog,
-            self._check_github_releases
-        ]
+        # Sources are now defined dynamically in detect_new_releases
     
     def _load_tracked(self) -> Dict:
         """Load previously tracked releases"""
@@ -124,9 +130,9 @@ class ReleaseDetector:
             
             # Convert dict to list of builds and process first 30
             # Sort by key (numeric) to get most recent first
-            sorted_keys = sorted(builds_data.keys(), key=lambda x: int(x) if x.isdigit() else 0)
+            sorted_keys = sorted(builds_data.keys(), key=lambda x: int(x) if x.isdigit() else 0, reverse=True)
             
-            for key in sorted_keys[:30]:
+            for key in sorted_keys[:30]: # Process only the most recent 30 builds
                 build = builds_data[key]
                 
                 if not isinstance(build, dict):
@@ -140,10 +146,6 @@ class ReleaseDetector:
                 
                 # Filter for x64 Windows 11
                 if 'Windows 11' not in title or arch != 'amd64':
-                    continue
-                
-                # Skip if already tracked
-                if build_id in self.tracked_data.get('builds', {}):
                     continue
                 
                 # Extract version
@@ -163,7 +165,7 @@ class ReleaseDetector:
                 releases.append(release)
                 logger.info(f"  ✨ Found: {title}")
             
-            logger.info(f"✅ Processed {processed} builds, found {len(releases)} new Windows 11 x64 releases")
+            logger.info(f"✅ Processed {processed} builds, found {len(releases)} new Windows 11 x64 releases from UUP Dump")
             return releases
             
         except requests.RequestException as e:
@@ -180,25 +182,6 @@ class ReleaseDetector:
             import traceback
             logger.debug(traceback.format_exc())
             return []
-    
-    def _check_microsoft_catalog(self) -> List[WindowsRelease]:
-        """Check Microsoft Update Catalog (placeholder)"""
-        logger.info("🔍 Checking Microsoft Catalog...")
-        
-        # This would require web scraping or API access
-        # Implementation depends on available endpoints
-        # For now, return empty list
-        
-        return []
-    
-    def _check_github_releases(self) -> List[WindowsRelease]:
-        """Check other GitHub repos for Windows ISOs (placeholder)"""
-        logger.info("🔍 Checking GitHub Releases...")
-        
-        # Check repos like microsoft/Windows-11 or community mirrors
-        # Implementation depends on available sources
-        
-        return []
     
     def _extract_version(self, title: str) -> str:
         """Extract Windows version from title"""
@@ -239,6 +222,130 @@ class ReleaseDetector:
         
         return 'Unknown'
     
+    def _check_microsoft_direct(self) -> List[WindowsRelease]:
+        """
+        Get direct ISO download link from Microsoft via Playwright automation
+        This replaces UUP Dump URLs with actual direct Microsoft CDN links
+        """
+        logger.info("🔍 Checking Microsoft Direct Downloads (Playwright)...")
+        
+        try:
+            downloader = MicrosoftPlaywrightDownloader(headless=True, timeout=60000)
+            versions = downloader.get_all_versions()
+            
+            releases = []
+            for v in versions:
+                # Skip if already tracked
+                if v['build_id'] in self.tracked_data.get('builds', {}):
+                    logger.debug(f"  ⏭️  Already tracked: {v['build_id']}")
+                    continue
+                
+                release = WindowsRelease(
+                    build_id=v['build_id'],
+                    build_number=v['build_number'],
+                    version=v['version'],
+                    title=v['title'],
+                    iso_url=v['iso_url'],  # DIRECT ISO URL from Microsoft!
+                    detected_date=v['detected_date'],
+                    architecture=v['architecture'],
+                    channel=v['channel'],
+                    language=v['language']
+                )
+                
+                releases.append(release)
+                logger.info(f"  ✨ Found direct ISO: {v['title']}")
+            
+            logger.info(f"✅ Got {len(releases)} direct download link(s) from Microsoft")
+            return releases
+            
+        except Exception as e:
+            logger.error(f"❌ Microsoft Playwright check failed: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return []
+    
+    def _compare_builds(self, build1: str, build2: str) -> int:
+        """
+        Compare two build numbers
+        
+        Args:
+            build1: First build number (e.g., "26100.1234")
+            build2: Second build number (e.g., "26100.5678")
+        
+        Returns:
+            1 if build1 > build2, -1 if build1 < build2, 0 if equal
+        """
+        try:
+            # Extract numeric parts (handle formats like "26100.1234" or "26100")
+            def parse_build(build: str) -> tuple:
+                parts = build.split('.')
+                # Convert to integers, pad with 0 if needed
+                major = int(parts[0]) if parts else 0
+                minor = int(parts[1]) if len(parts) > 1 else 0
+                return (major, minor)
+            
+            b1 = parse_build(build1)
+            b2 = parse_build(build2)
+            
+            if b1 > b2:
+                return 1
+            elif b1 < b2:
+                return -1
+            else:
+                return 0
+        except (ValueError, IndexError) as e:
+            logger.warning(f"⚠️  Error comparing builds {build1} vs {build2}: {e}")
+            return 0
+    
+    def _deduplicate_by_version(self, releases: List[WindowsRelease]) -> List[WindowsRelease]:
+        """
+        Keep only the latest build per version to avoid triggering too many builds
+        
+        For example, if we detect:
+        - 24H2 Build 26100.1000
+        - 24H2 Build 26100.2000
+        - 25H2 Build 26200.1000
+        
+        We'll keep only:
+        - 24H2 Build 26100.2000 (latest)
+        - 25H2 Build 26200.1000
+        
+        Args:
+            releases: List of WindowsRelease objects
+        
+        Returns:
+            Deduplicated list with one release per version
+        """
+        logger.info(f"📊 Deduplicating {len(releases)} releases by version...")
+        
+        version_map = {}
+        for release in releases:
+            version = release.version
+            
+            if version not in version_map:
+                version_map[version] = release
+                logger.debug(f"  First {version}: Build {release.build_number}")
+            else:
+                # Keep the one with higher build number
+                existing = version_map[version]
+                comparison = self._compare_builds(release.build_number, existing.build_number)
+                
+                if comparison > 0:
+                    logger.info(f"  ✨ Updating {version}: {existing.build_number} → {release.build_number}")
+                    version_map[version] = release
+                elif comparison < 0:
+                    logger.debug(f"  ⏭️  Skipping older {version}: {release.build_number} (keeping {existing.build_number})")
+                else:
+                    logger.debug(f"  ⏭️  Skipping duplicate {version}: {release.build_number}")
+        
+        deduped = list(version_map.values())
+        logger.info(f"✅ Deduplicated to {len(deduped)} releases (one per version)")
+        
+        for release in deduped:
+            logger.info(f"  📦 {release.version}: Build {release.build_number}")
+        
+        return deduped
+    
     def detect_new_releases(self, force: bool = False) -> List[WindowsRelease]:
         """
         Detect new releases from all sources
@@ -258,26 +365,53 @@ class ReleaseDetector:
         
         all_releases = []
         
-        # Check all sources
-        for source in self.sources:
+        # Define enabled sources (microsoft_direct is primary, UUP Dump is backup)
+        sources = {
+            'microsoft_direct': True,   # Primary - direct ISO links via Playwright
+            'uupdump': True,            # Backup - version detection
+        }
+        
+        # Check each enabled source
+        for source_name, enabled in sources.items():
+            if not enabled:
+                logger.info(f"  ⏭️  Skipping disabled source: {source_name}")
+                continue
+            
             try:
-                releases = source()
-                all_releases.extend(releases)
+                logger.info(f"🎯 Checking {source_name}...")
+                
+                if source_name == 'microsoft_direct':
+                    source_releases = self._check_microsoft_direct()
+                elif source_name == 'uupdump':
+                    source_releases = self._check_uupdump()
+                else:
+                    logger.warning(f"⚠️  Unknown source: {source_name}")
+                    continue
+                
+                all_releases.extend(source_releases)
             except Exception as e:
                 logger.error(f"❌ Source check failed: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
                 continue
         
-        # Deduplicate by build_id
+        # Deduplicate by build_id first
         unique_releases = {r.build_id: r for r in all_releases}
         
-        # Update tracked data
+        # Then deduplicate by version (keep only latest build per version)
+        # This prevents triggering 90 builds when we should only trigger 12-18
+        version_deduped = self._deduplicate_by_version(list(unique_releases.values()))
+        
+        # Update tracked data with ALL unique releases (not just deduped ones)
+        # This ensures we don't re-detect older builds later
         for release in unique_releases.values():
             self.tracked_data['builds'][release.build_id] = asdict(release)
         
         # Save tracking data
         self._save_tracked()
         
-        return list(unique_releases.values())
+        # Return only version-deduplicated releases for building
+        return version_deduped
     
     def generate_matrix(self, releases: List[WindowsRelease]) -> Dict:
         """
@@ -286,11 +420,15 @@ class ReleaseDetector:
         Returns:
             Dictionary suitable for matrix strategy
         """
+        logger.info(f"🎯 Generating build matrix for {len(releases)} versions")
+        
         matrix = {
             'include': []
         }
         
         for release in releases:
+            logger.info(f"  📦 {release.version}: Build {release.build_number}")
+            
             # Generate matrix entries for different build types
             for build_type in ['standard', 'core', 'nano']:
                 for edition in [1, 6]:  # Home, Pro
@@ -303,6 +441,9 @@ class ReleaseDetector:
                         'edition_name': 'Home' if edition == 1 else 'Pro',
                         'title': release.title.replace(' ', '_').replace('(', '').replace(')', '')
                     })
+        
+        total_builds = len(matrix['include'])
+        logger.info(f"✅ Generated {total_builds} total builds ({len(releases)} versions × 3 types × 2 editions)")
         
         return matrix
     
