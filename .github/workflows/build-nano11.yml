@@ -92,6 +92,14 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "FOLDER_NAME=$folderName"
           Add-Content -Path $env:GITHUB_ENV -Value "EDITION_NAME=$edition"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install requests
+
       - name: Discord - Build Started
         continue-on-error: true
         run: |
