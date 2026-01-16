@@ -7,13 +7,13 @@
 
 ## 🎯 Overview
 
-The Version Matrix Builder automatically monitors for new Windows 11 releases and triggers your Tiny11 build workflows without manual intervention. It checks daily for new builds from UUP Dump and creates a build matrix for Standard, Core, and Nano variants across Home and Pro editions.
+The Version Matrix Builder automatically monitors for new Windows 11 releases and triggers your Tiny11 build workflows without manual intervention. It checks weekly for new builds from UUP Dump and creates a build matrix for Standard, Core, and Nano variants across Home and Pro editions.
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  Daily Scheduled Check (00:00 UTC)          │
+│                  weekly Scheduled Check (00:00 UTC)          │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -288,7 +288,7 @@ for edition in [1, 4, 6, 7]:  # Home, Education, Pro, Pro N
 
 ```yaml
 schedule:
-  - cron: '0 */12 * * *'  # Every 12 hours instead of daily
+  - cron: '0 */12 * * *'  # Every 12 hours instead of weekly
 ```
 
 ## 📝 Logs & Monitoring
