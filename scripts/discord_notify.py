@@ -236,7 +236,12 @@ def main():
     
     # Call appropriate notification method
     if args.type == 'new-releases':
-        success = notifier.notify_new_releases(data.get('releases', []))
+        # Handle both list (direct releases) and dict (wrapped in 'releases' key)
+        if isinstance(data, list):
+            releases = data
+        else:
+            releases = data.get('releases', [])
+        success = notifier.notify_new_releases(releases)
     elif args.type == 'build-started':
         success = notifier.notify_build_started(
             data['version'], data['build_type'], data['edition']
