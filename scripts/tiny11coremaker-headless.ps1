@@ -285,7 +285,12 @@ function Remove-BloatwareApps {
         'MSTeams_',
         'Microsoft.OutlookForWindows_',
         'Microsoft.Windows.Teams_',
-        'Microsoft.Copilot_'
+        'Microsoft.Copilot_',
+        'Microsoft.Windows.AI',
+        'Microsoft.Windows.AIFabric',
+        'Microsoft.Windows.Recall',
+        'Microsoft.Windows.CoreAI',
+        'Microsoft.Recall'
     )
 
     $packagesToRemove = $packages | Where-Object {
@@ -372,6 +377,15 @@ function Remove-EdgeAndOneDrive {
         & icacls $oneDrivePath /grant "$($adminGroup.Value):(F)" /T /C | Out-Null
         Remove-Item -Path $oneDrivePath -Force -ErrorAction SilentlyContinue
     }
+
+    # Windows Update binaries (NON-SERVICEABLE BUILD)
+    Write-Log "Removing Windows Update binaries (this is a non-serviceable build)..."
+    Remove-Item -Path "$scratchDir\Windows\System32\usoclient.exe" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$scratchDir\Windows\System32\UsoApiAll.dll" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$scratchDir\Windows\System32\UsoApi.dll" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$scratchDir\Windows\System32\UpdatePolicy.dll" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$scratchDir\Windows\System32\drivers\umbus.sys" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$scratchDir\Windows\SoftwareDistribution" -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Log "Edge and OneDrive removal complete"
 }
@@ -663,6 +677,21 @@ function Apply-RegistryTweaks {
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 'REG_DWORD' '0'
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 'REG_DWORD' '1'
 
+    # Disable AI features (Recall, AI Fabric, Windows AI)
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'TurnOffWindowsAI' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 'REG_DWORD' '1'
+    
+    # Enhanced telemetry removal
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowDeviceNameInTelemetry' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack' 'ShowedToastAtLevel' 'REG_DWORD' '1'
+    
+    # Gaming optimization: Increase VRAM allocation
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\DirectDraw' 'EmulationOnly' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Direct3D' 'DisableVidMemVBs' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\GraphicsDrivers' 'DpiMapIommuContiguous' 'REG_DWORD' '1'
+
     # Prevent Teams installation
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
 
@@ -720,6 +749,38 @@ function Remove-ScheduledTasks {
     }
 
     Write-Log "Scheduled tasks removed"
+}
+
+function Remove-NonEssentialServices {
+    Write-Log "Removing non-essential services (aggressive for core build)..."
+    
+    # Core build: Aggressive service removal for non-serviceable VM builds
+    $servicesToRemove = @(
+        'DiagTrack',           # Connected User Experiences and Telemetry
+        'WerSvc',              # Windows Error Reporting
+        'PcaSvc',              # Program Compatibility Assistant
+        'SysMain',             # Superfetch
+        'Spooler',             # Print Spooler
+        'PrintNotify',         # Printer Notifications
+        'Fax',                 # Fax Service
+        'RemoteRegistry',      # Remote Registry
+        'diagsvc',             # Diagnostic Execution Service
+        'MapsBroker',          # Downloaded Maps Manager
+        'WalletService',       # Wallet Service
+        'BthAvctpSvc',         # Bluetooth Audio
+        'BluetoothUserService' # Bluetooth User Support
+    )
+    
+    foreach ($service in $servicesToRemove) {
+        Write-Log "Disabling service: $service"
+        try {
+            Set-RegistryValue "HKLM\zSYSTEM\ControlSet001\Services\$service" 'Start' 'REG_DWORD' '4'
+        } catch {
+            Write-Log "Could not disable service $service : Service may not exist" "WARN"
+        }
+    }
+    
+    Write-Log "Aggressive service removal complete"
 }
 
 function Unload-RegistryHives {
@@ -949,6 +1010,7 @@ try {
     Load-RegistryHives
     Apply-RegistryTweaks
     Remove-ScheduledTasks
+    Remove-NonEssentialServices
     Unload-RegistryHives
 
     # WinSxS optimization (CORE-specific)

@@ -308,7 +308,12 @@ function Remove-BloatwareApps {
         'MicrosoftCorporationII.QuickAssist',
         'MSTeams',
         'MicrosoftTeams',
-        'Microsoft.549981C3F5F10'
+        'Microsoft.549981C3F5F10',
+        'Microsoft.Windows.AI',
+        'Microsoft.Windows.AIFabric',
+        'Microsoft.Windows.Recall',
+        'Microsoft.Windows.CoreAI',
+        'Microsoft.Recall'
     )
     
     $packagesToRemove = $packages | Where-Object {
@@ -458,6 +463,21 @@ function Apply-RegistryTweaks {
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 'REG_DWORD' '0'
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 'REG_DWORD' '1'
     
+    # Disable AI features (Recall, AI Fabric, Windows AI)
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'TurnOffWindowsAI' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 'REG_DWORD' '1'
+    
+    # Enhanced telemetry removal
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 'REG_DWORD' '1'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowDeviceNameInTelemetry' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack' 'ShowedToastAtLevel' 'REG_DWORD' '1'
+    
+    # Gaming optimization: Increase VRAM allocation
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\DirectDraw' 'EmulationOnly' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Direct3D' 'DisableVidMemVBs' 'REG_DWORD' '0'
+    Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\GraphicsDrivers' 'DpiMapIommuContiguous' 'REG_DWORD' '1'
+    
     # Prevent Teams installation
     Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
     
@@ -487,6 +507,30 @@ function Remove-ScheduledTasks {
     }
     
     Write-Log "Scheduled tasks removed"
+}
+
+function Remove-NonEssentialServices {
+    Write-Log "Disabling non-essential services (minimal for standard build)..."
+    
+    # Standard build: Only disable diagnostic and telemetry services
+    # This preserves maximum compatibility while removing privacy/performance drains
+    $servicesToDisable = @(
+        'DiagTrack',           # Connected User Experiences and Telemetry
+        'WerSvc',              # Windows Error Reporting
+        'PcaSvc',              # Program Compatibility Assistant
+        'SysMain'              # Superfetch (not needed on SSDs)
+    )
+    
+    foreach ($service in $servicesToDisable) {
+        Write-Log "Disabling service: $service"
+        try {
+            Set-RegistryValue "HKLM\zSYSTEM\ControlSet001\Services\$service" 'Start' 'REG_DWORD' '4'
+        } catch {
+            Write-Log "Could not disable service $service : $_" "WARN"
+        }
+    }
+    
+    Write-Log "Non-essential services disabled"
 }
 
 function Unload-RegistryHives {
@@ -663,6 +707,7 @@ try {
     Remove-EdgeAndOneDrive
     Apply-RegistryTweaks
     Remove-ScheduledTasks
+    Remove-NonEssentialServices
     Unload-RegistryHives
     
     # Finalization phase
