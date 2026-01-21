@@ -31,28 +31,39 @@ Each folder contains:
 - **Documentation**: Full documentation available on GitHub
 - **Issues & Support**: Report issues on GitHub
 
+### 🌐 Landing Pages
+
+- **Tiny11**: [https://kelexine.is-a.dev/tiny11](https://kelexine.is-a.dev/tiny11)
+- **Nano11**: [https://kelexine.is-a.dev/nano11](https://kelexine.is-a.dev/nano11)
+
 ## 📋 Build Types
 
 ### Tiny11 (Standard)
 - Serviceable Windows 11 image
-- Removes 40+ bloatware apps
-- Disables telemetry and tracking
+- Removes 50+ bloatware apps including AI/Copilot/Recall
+- Enhanced telemetry blocking and privacy protection
+- VRAM gaming optimization
 - Maintains WinSxS for updates
 - Suitable for regular use
+- **NEW**: 4 non-essential services disabled
 
 ### Tiny11 Core
 - Ultra-minimal Windows 11 image
 - Aggressive WinSxS removal
-- No Windows Updates possible
+- Windows Update binaries removed (~300 MB saved)
+- No Windows Updates possible (NON-SERVICEABLE)
 - Designed for VMs and testing only
 - **NOT suitable for daily use**
+- **NEW**: 13 non-essential services disabled
 
 ### Nano11
 - EXTREME minimal Windows 11 image
 - Removes drivers, fonts, services, apps
+- Windows Update binaries removed (~300 MB saved)
 - No printing, no Notepad/Paint
 - **FOR VM TESTING ONLY**
-- Smallest possible footprint (~1.5GB)
+- Smallest possible footprint (~1.7-2.5GB)
+- **NEW**: 14 services removed, AI/Recall fully purged
 
 ## ⚠️ Important Notes
 

@@ -24,7 +24,21 @@
 - **🌍 Active Users**: 2,000+ worldwide
 - **✅ Build Success Rate**: 100%
 - **⏱️ Average Build Time**: 30-45 minutes
-- **💾 ISO Size Reduction**: Up to 50% smaller
+- **💾 ISO Size Reduction**: Up to 60% smaller (Windows 11 25H2)
+
+## 🆕 What's New (January 2026)
+
+**Windows 11 25H2 Optimizations:**
+- ✨ **AI/Recall Removal**: Complete removal of Copilot, Recall, and AI Fabric (~220 MB saved)
+- 🛡️ **Enhanced Telemetry Blocking**: Stronger privacy protection with additional registry tweaks
+- 🎮 **VRAM Gaming Optimization**: Improved graphics performance through DirectX registry optimizations
+- ⚡ **Build-Specific Service Removal**: 4 services (Standard), 13 services (Core), 14 services (Nano)
+- 🚫 **Windows Update Binary Removal**: Core/Nano builds now remove WU binaries (~300 MB saved)
+
+**Total Additional Savings:**
+- Standard: ~120 MB
+- Core: ~320 MB
+- Nano: ~320 MB
 
 ---
 
@@ -52,6 +66,12 @@ This project is based on the original [tiny11 builder by ntdevlabs](https://gith
 - **Source Code**: [GitHub Repository](https://github.com/kelexine/tiny11-automated)
 
 > ⚠️ **ISO files are hosted on SourceForge only.** GitHub Releases contains release notes and checksums.
+
+### 🌐 Landing Pages
+
+- **Tiny11 Info**: [https://kelexine.is-a.dev/tiny11](https://kelexine.is-a.dev/tiny11) - Detailed information about standard Tiny11 builds
+- **Nano11 Info**: [https://kelexine.is-a.dev/nano11](https://kelexine.is-a.dev/nano11) - Detailed information about Nano11 extreme minimal builds
+
 
 ### ⚖️ Legal Notice
 
@@ -305,6 +325,12 @@ tiny11-automated/
 - Your Phone (Phone Link)
 - Outlook for Windows (new)
 
+**AI Features (Windows 11 25H2+):**
+- Windows Copilot (AI Assistant)
+- Windows Recall (AI Snapshots)
+- AI Fabric Service
+- CoreAI Components
+
 **Office & Productivity:**
 - Office Hub
 - Power Automate
@@ -358,10 +384,18 @@ tiny11-automated/
 
 **Privacy & Telemetry:**
 - All telemetry endpoints disabled
-- Diagnostic data collection disabled
+- Enhanced diagnostic data blocking
 - Activity history disabled
 - Location services disabled
 - Advertising ID disabled
+- Device name excluded from telemetry
+- Feedback notifications disabled
+
+**AI & Privacy (NEW - Windows 11 25H2):**
+- Windows AI data analysis completely disabled
+- Copilot AI assistant fully removed
+- Recall snapshot feature blocked
+- AI Fabric service disabled
 
 **User Experience:**
 - Sponsored apps blocked
@@ -373,10 +407,16 @@ tiny11-automated/
 - Widgets disabled
 - Cortana startup disabled
 
+**Performance (NEW):**
+- VRAM allocation optimized for gaming
+- Non-essential services disabled (4-13 depending on variant)
+- Diagnostic services removed
+- Telemetry services disabled
+
 **Update & Cloud:**
-- Windows Update disabled (can be manually enabled)
+- Windows Update disabled (can be manually enabled in Standard)
+- Windows Update binaries removed (Core/Nano - NON-SERVICEABLE)
 - OneDrive backup prompts disabled
-- Copilot AI integration disabled
 - Teams auto-install blocked
 - New Outlook installation blocked
 
