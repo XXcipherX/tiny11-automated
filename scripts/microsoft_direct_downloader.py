@@ -143,10 +143,17 @@ class MicrosoftPlaywrightDownloader:
                 
                 self._random_delay(0.5, 1.5)
                 
-                # Step 4: Select English International
-                # NOTE: The value is a JSON string: {"id":"19676","language":"English International"}
-                logger.info(f"✅ Selecting English International...")
-                page.select_option('#product-languages', index=1)  # First option after "Select one"
+                # Step 4: Select English (United States)
+                # NOTE: We select by label to ensure we get the correct language regardless of list order
+                logger.info(f"✅ Selecting language: English (United States)...")
+                
+                # Try English (United States) first, then fallback to English International
+                try:
+                    page.select_option('#product-languages', label='English (United States)')
+                except Exception as e:
+                    logger.warning(f"Could not select 'English (United States)': {e}")
+                    logger.info("Trying 'English International'...")
+                    page.select_option('#product-languages', label='English International')
                 
                 self._random_delay(0.5, 1.0)
                 
