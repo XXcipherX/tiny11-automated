@@ -130,7 +130,7 @@ jobs:
           $url = "${{ github.event.inputs.windows_iso_url }}"
           $output = "Win11_Source.iso"
           
-          Write-Output "Downloading Windows 11 ISO from Microsoft servers..."
+          Write-Output "Downloading Windows 11 ISO"
           Write-Output "URL: $($url.Substring(0, 100))..."
           
           $startTime = Get-Date
