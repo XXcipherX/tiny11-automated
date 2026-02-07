@@ -17,15 +17,12 @@ on:
         required: true
         default: 'https://software.download.prss.microsoft.com/dbazure/Win11_25H2_English_x64.iso?t=641a9719-5089-48d3-b683-44d9012b040e&P1=1765893811&P2=601&P3=2&P4=kPgTlzFR6%2bt9lzW6l2ITzVyc3%2fMHiCzaC5YMwf3RcQH%2bXezCHitvttx2e91%2fT%2bPcXPxVLKAYbeqrAW2mZozm1q%2bTjC4JYdInC0gROdmtKH2X84U99HD1RzRhTXmFi7lemqPDAHcOZ4yx95AzW6rzMvQF2QBsmSE%2fl5l8bWupChqEd28LHdjMXrSu3otYpyxc8S4cFluEgaLD2mkPCrqX61ij2PUrqiZM2jq%2bbz5Fx3kNXCZ3Z1pJkfKKQGb3T%2fvbbWfu7avjuU2kBDJjyeecJH3MGeTP9jsbT6oIHU95AL05%2bA43il%2f4rGDNcFGji1logGrKYi%2f%2b2fDpCFuGh9rN5w%3d%3d'
       image_index:
-        description: 'Windows image index (1=Home, 4=Education, 6=Pro, 7=Pro N)'
+        description: 'Windows image index (1=Pro)'
         required: true
         default: '1'
         type: choice
         options:
           - '1'
-          - '4'
-          - '6'
-          - '7'
       language:
         description: 'Language (e.g., English, Spanish, French)'
         required: false
@@ -66,10 +63,7 @@ jobs:
           # Get edition based on index
           $index = "${{ github.event.inputs.image_index }}"
           $editions = @{
-              "1" = "Home"
-              "4" = "Education"
-              "6" = "Pro"
-              "7" = "ProN"
+              "1" = "Pro"
           }
           $edition = $editions[$index]
 
@@ -104,21 +98,6 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install requests
-
-      - name: Discord - Build Started
-        continue-on-error: true
-        run: |
-          python scripts/discord_notify.py `
-            --webhook "$env:DISCORD_WEBHOOK" `
-            --type build-started `
-            --data (ConvertTo-Json @{
-              version = "${{ inputs.windows_version }}"
-              build_type = "Standard"
-              edition = "$env:EDITION_NAME"
-            } -Compress)
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BUILDS }}
-        shell: pwsh
         
       - name: System information
         shell: powershell
@@ -328,36 +307,6 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_SIZE_GB=$sizeGB"
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_SHA256=$sha256"
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_MD5=$md5"
-          
-      - name: Discord - Build Completed
-        if: success()
-        continue-on-error: true
-        run: |
-          # Get ISO size
-          $isoPath = Get-ChildItem -Path . -Filter "*.iso" -Recurse | Select-Object -First 1
-          $isoSize = if ($isoPath) { 
-            "{0:N2} GB" -f ($isoPath.Length / 1GB)
-          } else { 
-            "Unknown" 
-          }
-          
-          # Calculate duration (rough estimate)
-          $duration = "${{ job.duration }}"
-          
-          python scripts/discord_notify.py `
-            --webhook "$env:DISCORD_WEBHOOK" `
-            --type build-completed `
-            --data (ConvertTo-Json @{
-              version = "${{ inputs.windows_version }}"
-              build_type = "Standard"
-              edition = "$env:EDITION_NAME"
-              duration = "Completed"
-              iso_size = $isoSize
-              download_url = "https://sourceforge.net/projects/tiny-11-releases/"
-            } -Compress)
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BUILDS }}
-        shell: pwsh
 
       - name: Cleanup before upload
         shell: powershell
@@ -394,126 +343,6 @@ jobs:
           } else {
             Write-Output "Upload condition NOT met. Fallback to artifacts."
             "DO_UPLOAD=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          }
-
-      - name: Validate SourceForge credentials
-        if: env.DO_UPLOAD == 'true'
-        env:
-          SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-        shell: powershell
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:SF_SSH_KEY)) {
-            Write-Error "SF_SSH_KEY secret is not configured"
-            exit 1
-          }
-          if ([string]::IsNullOrWhiteSpace($env:SF_USERNAME)) {
-            Write-Error "SF_USERNAME secret is not configured"
-            exit 1
-          }
-          
-          Write-Output "Credentials validated successfully"
-          
-      - name: Setup SSH for SourceForge
-        if: env.DO_UPLOAD == 'true'
-        shell: powershell
-        env:
-          SF_PROJECT: ${{ secrets.SF_PROJECT }}
-          SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-        run: |
-          # 1. Validation
-          if ([string]::IsNullOrWhiteSpace($env:SF_SSH_KEY)) { Write-Error "Secret SF_SSH_KEY is missing"; exit 1 }
-          
-          # Fallback for Project Name
-          if ([string]::IsNullOrWhiteSpace($env:SF_PROJECT)) {
-            $env:SF_PROJECT = "${{ github.event.repository.name }}"
-          }
-          Add-Content -Path $env:GITHUB_ENV -Value "SF_PROJECT=$env:SF_PROJECT"
-          
-          # 2. Create SSH Directory
-          $sshDir = "$env:USERPROFILE\.ssh"
-          if (!(Test-Path $sshDir)) { New-Item -ItemType Directory -Force -Path $sshDir | Out-Null }
-          
-          $keyPath = "$sshDir\sf_key"
-          
-          # 3. Write Private Key (BASE64 DECODE FIX)
-          # We decode the base64 secret back into a raw file. 
-          # This creates a perfect file byte-for-byte, fixing the "Invalid Format" error.
-          try {
-            $keyBytes = [System.Convert]::FromBase64String($env:SF_SSH_KEY)
-            [System.IO.File]::WriteAllBytes($keyPath, $keyBytes)
-          } catch {
-            Write-Error "Failed to decode SF_SSH_KEY. Did you Base64 encode it in Termux first?"
-            exit 1
-          }
-          
-          # 4. Fix Permissions (Windows ACLs)
-          # OpenSSH on Windows refuses keys that are too "open".
-          icacls $keyPath /c /t /inheritance:d
-          icacls $keyPath /c /t /grant "${env:USERNAME}:F"
-          icacls $keyPath /c /t /remove Administrator "Authenticated Users" BUILTIN\Administrators BUILTIN\Users
-          
-          # 5. Add Known Host
-          ssh-keyscan -t rsa,ecdsa,ed25519 frs.sourceforge.net | Out-File -FilePath "$sshDir\known_hosts" -Encoding ascii
-          
-          Write-Output "SSH configuration complete."
-
-      - name: Upload to SourceForge (Recursive Method)
-        if: env.DO_UPLOAD == 'true'
-        shell: powershell
-        env:
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-          SF_PROJECT: ${{ secrets.SF_PROJECT }}
-          ISO_NAME: ${{ env.ISO_NAME }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          $keyPath = "$env:USERPROFILE\.ssh\sf_key"
-
-          # 1. Prepare a local folder
-          # We create a folder locally named after the edition and version (e.g., "Tiny11-HOME-25H2")
-          Write-Output "Organizing files into folder: $env:FOLDER_NAME"
-          New-Item -ItemType Directory -Force -Path $env:FOLDER_NAME | Out-Null
-
-          # 2. Copy files into this folder
-          # Note: Using Copy-Item instead of Move-Item so files remain for the GitHub Release step below
-          Copy-Item $env:ISO_NAME $env:FOLDER_NAME
-          Copy-Item "$env:ISO_NAME.sha256" $env:FOLDER_NAME
-          Copy-Item "$env:ISO_NAME.md5" $env:FOLDER_NAME
-          Copy-Item "$env:ISO_NAME.txt" $env:FOLDER_NAME
-
-          # Copy SourceForge README
-          if (Test-Path "SOURCEFORGE_README.md") {
-            Copy-Item "SOURCEFORGE_README.md" $env:FOLDER_NAME
-            Write-Output "Copied SOURCEFORGE_README.md to folder"
-          }
-
-          # 3. Upload the WHOLE folder
-          # The '-r' flag tells SCP to copy the folder.
-          # SCP will automatically create the directory on SourceForge if it doesn't exist.
-          $remoteRoot = "$env:SF_USERNAME@frs.sourceforge.net:/home/frs/project/$env:SF_PROJECT/"
-
-          Write-Output "Uploading folder..."
-          scp -i $keyPath -r -o StrictHostKeyChecking=no $env:FOLDER_NAME $remoteRoot
-
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "SCP Upload failed"
-            exit 1
-          }
-          Write-Output "Upload success!"
-
-          # 4. Set Download URL
-          $downloadUrl = "https://sourceforge.net/projects/$env:SF_PROJECT/files/$env:FOLDER_NAME/$env:ISO_NAME/download"
-          Add-Content -Path $env:GITHUB_ENV -Value "SF_DOWNLOAD_URL=$downloadUrl"
-          
-      - name: Cleanup SSH credentials
-        if: always()
-        shell: powershell
-        run: |
-          $keyPath = "$env:USERPROFILE\.ssh\sf_key"
-          if (Test-Path $keyPath) {
-            Remove-Item $keyPath -Force -ErrorAction SilentlyContinue
-            Write-Output "SSH key cleaned up"
           }
           
       - name: Upload ISO as artifact (fallback)
@@ -586,15 +415,6 @@ jobs:
             - ✅ Disabled telemetry and tracking
             - ✅ Compact installation (~3-5GB)
             - ✅ Faster boot and performance
-
-            ### 📋 Windows Editions
-            | Index | Edition |
-            |-------|---------|
-            | 1 | Home |
-            | 4 | Education |
-            | 6 | Pro |
-            | 7 | Pro N |
-
             ---
 
             **⚠️ Disclaimer:** This is an unofficial Windows 11 modification. Use at your own risk. Not affiliated with Microsoft.
@@ -642,21 +462,4 @@ jobs:
           "@
 
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
-
-      - name: Discord - Build Failed
-        if: failure()
-        continue-on-error: true
-        run: |
-          python scripts/discord_notify.py `
-            --webhook "$env:DISCORD_WEBHOOK" `
-            --type build-failed `
-            --data (ConvertTo-Json @{
-              version = "${{ inputs.windows_version }}"
-              build_type = "Standard"
-              edition = "$env:EDITION_NAME"
-              error = "Build failed - check logs for details"
-              logs_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            } -Compress)
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_ERRORS }}
-        shell: pwsh
+          
