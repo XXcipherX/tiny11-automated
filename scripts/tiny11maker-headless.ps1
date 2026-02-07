@@ -294,7 +294,6 @@ function Remove-BloatwareApps {
         'Microsoft.WindowsFeedbackHub',
         'Microsoft.WindowsMaps',
         'Microsoft.WindowsSoundRecorder',
-        'Microsoft.WindowsTerminal',
         'Microsoft.Xbox.TCUI',
         'Microsoft.XboxApp',
         'Microsoft.XboxGameOverlay',
