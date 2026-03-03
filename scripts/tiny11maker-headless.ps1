@@ -36,19 +36,19 @@
 #---------[ Parameters ]---------#
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory=$true, HelpMessage="Drive letter of mounted Windows 11 ISO (e.g., E)")]
+    [Parameter(Mandatory = $true, HelpMessage = "Drive letter of mounted Windows 11 ISO (e.g., E)")]
     [ValidatePattern('^[c-zC-Z]$')]
     [string]$ISO,
     
-    [Parameter(Mandatory=$true, HelpMessage="Windows image index (1=Home, 6=Pro, etc.)")]
+    [Parameter(Mandatory = $true, HelpMessage = "Windows image index (1=Home, 6=Pro, etc.)")]
     [ValidateRange(1, 10)]
     [int]$INDEX,
     
-    [Parameter(Mandatory=$false, HelpMessage="Scratch disk drive letter (defaults to script directory)")]
+    [Parameter(Mandatory = $false, HelpMessage = "Scratch disk drive letter (defaults to script directory)")]
     [ValidatePattern('^[c-zC-Z]$')]
     [string]$SCRATCH,
     
-    [Parameter(Mandatory=$false, HelpMessage="Skip cleanup of temporary files")]
+    [Parameter(Mandatory = $false, HelpMessage = "Skip cleanup of temporary files")]
     [switch]$SkipCleanup
 )
 
@@ -59,7 +59,8 @@ Set-StrictMode -Version Latest
 #---------[ Configuration ]---------#
 if (-not $SCRATCH) {
     $ScratchDisk = $PSScriptRoot -replace '[\\]+$', ''
-} else {
+}
+else {
     $ScratchDisk = $SCRATCH + ":"
 }
 
@@ -89,7 +90,8 @@ function Set-RegistryValue {
     try {
         & 'reg' 'add' $path '/v' $name '/t' $type '/d' $value '/f' | Out-Null
         Write-Log "Set registry: $path\$name = $value"
-    } catch {
+    }
+    catch {
         Write-Log "Error setting registry $path\$name : $_" "ERROR"
         throw
     }
@@ -100,7 +102,8 @@ function Remove-RegistryValue {
     try {
         & 'reg' 'delete' $path '/f' | Out-Null
         Write-Log "Removed registry: $path"
-    } catch {
+    }
+    catch {
         Write-Log "Error removing registry $path : $_" "WARN"
     }
 }
@@ -109,8 +112,6 @@ function Test-Prerequisites {
     Write-Log "Checking prerequisites..."
     
     # Check admin rights
-    $adminSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-    $adminGroup = $adminSID.Translate([System.Security.Principal.NTAccount])
     $myWindowsID = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $myWindowsPrincipal = New-Object System.Security.Principal.WindowsPrincipal($myWindowsID)
     $adminRole = [System.Security.Principal.WindowsBuiltInRole]::Administrator
@@ -187,7 +188,7 @@ function Copy-WindowsFiles {
     Write-Log "File copy complete"
 }
 
-function Validate-ImageIndex {
+function Test-ImageIndex {
     Write-Log "Validating image index $INDEX..."
     
     $images = Get-WindowsImage -ImagePath $wimFilePath
@@ -209,8 +210,8 @@ function Mount-WindowsImageFile {
     # Take ownership and set permissions
     & takeown /F $wimFilePath /A | Out-Null
     $adminSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-    $adminGroup = $adminSID.Translate([System.Security.Principal.NTAccount])
-    & icacls $wimFilePath /grant "$($adminGroup.Value):(F)" | Out-Null
+    $adminAccount = $adminSID.Translate([System.Security.Principal.NTAccount]).Value
+    & icacls $wimFilePath /grant "${adminAccount}:(F)" | Out-Null
     
     Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
     
@@ -226,8 +227,8 @@ function Get-ImageMetadata {
     $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
     
     if ($languageLine) {
-        $languageCode = $Matches[1]
-        Write-Log "Language: $languageCode"
+        $script:languageCode = $Matches[1]
+        Write-Log "Language: $script:languageCode"
     }
     
     # Get architecture
@@ -250,11 +251,11 @@ function Remove-BloatwareApps {
     Write-Log "Removing provisioned appx packages..."
     
     $packages = & dism /English "/image:$scratchDir" /Get-ProvisionedAppxPackages |
-        ForEach-Object {
-            if ($_ -match 'PackageName : (.*)') {
-                $matches[1]
-            }
+    ForEach-Object {
+        if ($_ -match 'PackageName : (.*)') {
+            $matches[1]
         }
+    }
     
     $packagePrefixes = @(
         'AppUp.IntelManagementandSecurityStatus',
@@ -334,7 +335,7 @@ function Remove-EdgeAndOneDrive {
     Write-Log "Removing Microsoft Edge..."
     
     $adminSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-    $adminGroup = $adminSID.Translate([System.Security.Principal.NTAccount])
+    $adminAccount = $adminSID.Translate([System.Security.Principal.NTAccount]).Value
     
     $edgePaths = @(
         "$scratchDir\Program Files (x86)\Microsoft\Edge",
@@ -346,7 +347,7 @@ function Remove-EdgeAndOneDrive {
     foreach ($path in $edgePaths) {
         if (Test-Path $path) {
             & takeown /f $path /r /a | Out-Null
-            & icacls $path /grant "$($adminGroup.Value):(F)" /T /C | Out-Null
+            & icacls $path /grant "${adminAccount}:(F)" /T /C | Out-Null
             Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -355,14 +356,14 @@ function Remove-EdgeAndOneDrive {
     $oneDrivePath = "$scratchDir\Windows\System32\OneDriveSetup.exe"
     if (Test-Path $oneDrivePath) {
         & takeown /f $oneDrivePath /a | Out-Null
-        & icacls $oneDrivePath /grant "$($adminGroup.Value):(F)" /T /C | Out-Null
+        & icacls $oneDrivePath /grant "${adminAccount}:(F)" /T /C | Out-Null
         Remove-Item -Path $oneDrivePath -Force -ErrorAction SilentlyContinue
     }
     
     Write-Log "Edge and OneDrive removal complete"
 }
 
-function Apply-RegistryTweaks {
+function Set-RegistryTweaks {
     Write-Log "Loading registry hives..."
     
     reg load HKLM\zCOMPONENTS "$scratchDir\Windows\System32\config\COMPONENTS" | Out-Null
@@ -527,7 +528,8 @@ function Remove-NonEssentialServices {
         Write-Log "Disabling service: $service"
         try {
             Set-RegistryValue "HKLM\zSYSTEM\ControlSet001\Services\$service" 'Start' 'REG_DWORD' '4'
-        } catch {
+        }
+        catch {
             Write-Log "Could not disable service $service : $_" "WARN"
         }
     }
@@ -535,7 +537,7 @@ function Remove-NonEssentialServices {
     Write-Log "Non-essential services disabled"
 }
 
-function Unload-RegistryHives {
+function Dismount-RegistryHives {
     Write-Log "Unloading registry hives..."
     
     reg unload HKLM\zCOMPONENTS | Out-Null
@@ -568,16 +570,16 @@ function Dismount-AndExport {
     Write-Log "Install.wim export complete"
 }
 
-function Process-BootImage {
+function Invoke-BootImageProcessing {
     Write-Log "Processing boot.wim..."
     
     $bootWimPath = "$tiny11Dir\sources\boot.wim"
     
     # Take ownership
     $adminSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-    $adminGroup = $adminSID.Translate([System.Security.Principal.NTAccount])
+    $adminAccount = $adminSID.Translate([System.Security.Principal.NTAccount]).Value
     & takeown /F $bootWimPath /A | Out-Null
-    & icacls $bootWimPath /grant "$($adminGroup.Value):(F)" | Out-Null
+    & icacls $bootWimPath /grant "${adminAccount}:(F)" | Out-Null
     Set-ItemProperty -Path $bootWimPath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
     
     Write-Log "Mounting boot.wim (Index 2)..."
@@ -602,7 +604,7 @@ function Process-BootImage {
     Set-RegistryValue 'HKLM\zSYSTEM\Setup\LabConfig' 'BypassTPMCheck' 'REG_DWORD' '1'
     Set-RegistryValue 'HKLM\zSYSTEM\Setup\MoSetup' 'AllowUpgradesWithUnsupportedTPMOrCPU' 'REG_DWORD' '1'
     
-    Unload-RegistryHives
+    Dismount-RegistryHives
     
     Write-Log "Dismounting boot.wim..."
     Dismount-WindowsImage -Path $scratchDir -Save
@@ -610,7 +612,7 @@ function Process-BootImage {
     Write-Log "Boot image processing complete"
 }
 
-function Create-TinyISO {
+function New-TinyISO {
     Write-Log "Creating ISO image..."
     
     # Copy autounattend.xml to ISO root for OOBE bypass
@@ -627,7 +629,8 @@ function Create-TinyISO {
     if (Test-Path "$ADKDepTools\oscdimg.exe") {
         Write-Log "Using oscdimg.exe from Windows ADK"
         $OSCDIMG = "$ADKDepTools\oscdimg.exe"
-    } else {
+    }
+    else {
         Write-Log "ADK not found, downloading oscdimg.exe..."
         $url = "https://msdl.microsoft.com/download/symbols/oscdimg.exe/3D44737265000/oscdimg.exe"
         
@@ -647,7 +650,8 @@ function Create-TinyISO {
     if (Test-Path $outputISO) {
         $isoSize = [math]::Round((Get-Item $outputISO).Length / 1GB, 2)
         Write-Log "ISO created successfully: $outputISO (${isoSize}GB)"
-    } else {
+    }
+    else {
         throw "ISO creation failed"
     }
 }
@@ -675,7 +679,8 @@ function Invoke-Cleanup {
     
     if ($remainingItems.Count -gt 0) {
         Write-Log "Cleanup incomplete: $($remainingItems -join ', ') still exist" "WARN"
-    } else {
+    }
+    else {
         Write-Log "Cleanup complete"
     }
 }
@@ -694,29 +699,30 @@ try {
         Initialize-Directories
         Convert-ESDToWIM
         Copy-WindowsFiles
-    } else {
+    }
+    else {
         Write-Log "Found install.wim, no conversion needed"
         Initialize-Directories
         Copy-WindowsFiles
     }
     
-    Validate-ImageIndex
+    Test-ImageIndex
     Mount-WindowsImageFile
     Get-ImageMetadata
     
     # Customization phase
     Remove-BloatwareApps
     Remove-EdgeAndOneDrive
-    Apply-RegistryTweaks
+    Set-RegistryTweaks
     Remove-ScheduledTasks
     Remove-NonEssentialServices
-    Unload-RegistryHives
+    Dismount-RegistryHives
     
     # Finalization phase
     Optimize-WindowsImage
     Dismount-AndExport
-    Process-BootImage
-    Create-TinyISO
+    Invoke-BootImageProcessing
+    New-TinyISO
     
     # Cleanup
     Invoke-Cleanup
@@ -726,7 +732,8 @@ try {
     
     exit 0
     
-} catch {
+}
+catch {
     Write-Log "FATAL ERROR: $_" "ERROR"
     Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
     
@@ -737,8 +744,9 @@ try {
             Dismount-WindowsImage -Path $_.Path -Discard -ErrorAction SilentlyContinue
         }
         
-        Unload-RegistryHives -ErrorAction SilentlyContinue
-    } catch {
+        try { Dismount-RegistryHives } catch { }
+    }
+    catch {
         Write-Log "Emergency cleanup failed: $_" "ERROR"
     }
     
