@@ -1,13 +1,3 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.venv/
-venv/
-env/
-.env
-
 # ISOs and Images (Large Files)
 *.iso
 *.wim
@@ -19,18 +9,13 @@ env/
 # Build Artifacts & Logs
 Tiny11*/
 Win11_Source.iso
-scripts/tiny11-core.iso
 scripts/tiny11.iso
-scripts/nano11.iso
 *.log
 *.tmp
 
 # Checksums and Verification Files (generated artifacts)
 *.sha256
 *.md5
-# Ignore all txt files except requirements.txt
-*.txt
-!requirements.txt
 
 # OS Generated
 .DS_Store
