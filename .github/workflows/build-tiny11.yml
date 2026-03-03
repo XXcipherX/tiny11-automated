@@ -15,7 +15,6 @@ on:
       windows_iso_url:
         description: 'Windows 11 ISO download URL'
         required: true
-        default: 'https://software.download.prss.microsoft.com/dbazure/Win11_25H2_English_x64.iso?t=641a9719-5089-48d3-b683-44d9012b040e&P1=1765893811&P2=601&P3=2&P4=kPgTlzFR6%2bt9lzW6l2ITzVyc3%2fMHiCzaC5YMwf3RcQH%2bXezCHitvttx2e91%2fT%2bPcXPxVLKAYbeqrAW2mZozm1q%2bTjC4JYdInC0gROdmtKH2X84U99HD1RzRhTXmFi7lemqPDAHcOZ4yx95AzW6rzMvQF2QBsmSE%2fl5l8bWupChqEd28LHdjMXrSu3otYpyxc8S4cFluEgaLD2mkPCrqX61ij2PUrqiZM2jq%2bbz5Fx3kNXCZ3Z1pJkfKKQGb3T%2fvbbWfu7avjuU2kBDJjyeecJH3MGeTP9jsbT6oIHU95AL05%2bA43il%2f4rGDNcFGji1logGrKYi%2f%2b2fDpCFuGh9rN5w%3d%3d'
       image_index:
         description: 'Windows image index (1=Pro)'
         required: true
@@ -37,6 +36,16 @@ env:
   ARIA2C_CONNECTIONS: '16'
   ARIA2C_SPLIT: '16'
   POWERSHELL_TELEMETRY_OPTOUT: '1'
+  # Dynamically set during build — defaults silence linter warnings
+  RELEASE_TAG: ''
+  ISO_FILENAME: ''
+  ISO_NAME: ''
+
+  EDITION_NAME: ''
+  ISO_DRIVE: ''
+  ISO_SIZE_GB: ''
+  ISO_SHA256: ''
+  ISO_MD5: ''
 
 jobs:
   build-tiny11:
@@ -44,23 +53,19 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
-      id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-
       - name: Generate release tag and ISO name
         shell: powershell
         run: |
-          # Get date for tag and ISO naming
           $date = Get-Date -Format 'yyyy-MM-dd'
           $version = "${{ github.event.inputs.windows_version }}"
 
-          # Get edition based on index
           $index = "${{ github.event.inputs.image_index }}"
           $editions = @{
               "1" = "Pro"
@@ -69,11 +74,7 @@ jobs:
 
           $language = "${{ github.event.inputs.language }}" -replace '[^a-zA-Z]', ''
 
-          # Generate tag and names - New structure: Tiny11-EDITION-VERSION for folders
-          $folderName = "Tiny11-$edition-$version"
           $isoName = "Tiny11-$version-$language-$edition-$date.iso"
-
-          # For GitHub releases, we'll use a more specific tag with date
           $baseTag = "tiny11-$version-$date"
 
           # Check if tag already exists
@@ -84,11 +85,11 @@ jobs:
 
           Write-Output "Generated tag: $baseTag"
           Write-Output "Generated ISO name: $isoName"
-          Write-Output "Generated folder name: $folderName"
+
 
           Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_TAG=$baseTag"
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_FILENAME=$isoName"
-          Add-Content -Path $env:GITHUB_ENV -Value "FOLDER_NAME=$folderName"
+
           Add-Content -Path $env:GITHUB_ENV -Value "EDITION_NAME=$edition"
 
       - name: System information
@@ -98,35 +99,35 @@ jobs:
           Write-Output "OS: $(Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty Caption)"
           Write-Output "PowerShell: $($PSVersionTable.PSVersion)"
           Write-Output "Architecture: $env:PROCESSOR_ARCHITECTURE"
-          
+
           $disk = Get-PSDrive C
           $freeGB = [math]::Round($disk.Free / 1GB, 2)
           $totalGB = [math]::Round($disk.Used / 1GB + $disk.Free / 1GB, 2)
           Write-Output "Disk C: ${freeGB}GB free / ${totalGB}GB total"
-          
+
           if ($freeGB -lt 25) {
             Write-Error "Insufficient disk space. At least 25GB required, found ${freeGB}GB"
             exit 1
           }
-          
+
       - name: Install aria2c
         shell: powershell
         run: |
           Write-Output "Installing aria2c for faster downloads..."
           choco install aria2 -y --no-progress
           aria2c --version
-          
+
       - name: Download Windows 11 ISO
         shell: powershell
         run: |
           $url = "${{ github.event.inputs.windows_iso_url }}"
           $output = "Win11_Source.iso"
-          
+
           Write-Output "Downloading Windows 11 ISO"
-          Write-Output "URL: $($url.Substring(0, 100))..."
-          
+          Write-Output "URL: $($url.Substring(0, [Math]::Min($url.Length, 100)))..."
+
           $startTime = Get-Date
-          
+
           aria2c `
             --console-log-level=info `
             --summary-interval=30 `
@@ -144,54 +145,68 @@ jobs:
             --check-integrity=true `
             --out=$output `
             "$url"
-          
+
           $downloadTime = (Get-Date) - $startTime
-          
+
           if (-not (Test-Path $output)) {
             Write-Error "Download failed - ISO file not found"
             exit 1
           }
-          
-          $sizeGB = [math]::Round((Get-Item $output).Length / 1GB, 2)
+
+          $fileSize = (Get-Item $output).Length
+          if ($fileSize -lt 1GB) {
+            Write-Error "Downloaded file is too small ($('{0:N2}' -f ($fileSize / 1MB)) MB). Likely an error page, not an ISO."
+            exit 1
+          }
+
+          $sizeGB = [math]::Round($fileSize / 1GB, 2)
           Write-Output "Download complete: ${sizeGB}GB in $($downloadTime.TotalMinutes.ToString('F2')) minutes"
-          
+
       - name: Mount Windows ISO
         shell: powershell
         run: |
           $isoPath = Join-Path $PWD "Win11_Source.iso"
           Write-Output "Mounting ISO: $isoPath"
-          
+
           $mount = Mount-DiskImage -ImagePath $isoPath -PassThru -StorageType ISO
-          Start-Sleep -Seconds 3
-          
-          $driveLetter = ($mount | Get-Volume).DriveLetter
-          
+          Start-Sleep -Seconds 5
+
+          # Retry logic for drive letter retrieval
+          $driveLetter = $null
+          for ($i = 0; $i -lt 5; $i++) {
+            $driveLetter = ($mount | Get-Volume).DriveLetter
+            if ($driveLetter) { break }
+            Write-Output "Waiting for drive letter (attempt $($i + 1)/5)..."
+            Start-Sleep -Seconds 3
+          }
+
           if (-not $driveLetter) {
             Write-Error "Failed to mount ISO or retrieve drive letter"
             exit 1
           }
-          
+
           Write-Output "ISO mounted successfully at drive: ${driveLetter}:"
-          
+
           # Verify critical files exist
-          $requiredFiles = @(
-            "${driveLetter}:\sources\boot.wim",
-            "${driveLetter}:\sources\install.wim",
-            "${driveLetter}:\sources\install.esd"
-          )
-          
-          $foundFiles = $requiredFiles | Where-Object { Test-Path $_ }
-          
-          if ($foundFiles.Count -eq 0) {
+          $hasWim = Test-Path "${driveLetter}:\sources\install.wim"
+          $hasEsd = Test-Path "${driveLetter}:\sources\install.esd"
+          $hasBoot = Test-Path "${driveLetter}:\sources\boot.wim"
+
+          if (-not $hasBoot) {
+            Write-Error "boot.wim not found on mounted ISO"
+            exit 1
+          }
+
+          if (-not $hasWim -and -not $hasEsd) {
             Write-Error "No install.wim or install.esd found on mounted ISO"
             exit 1
           }
-          
-          Write-Output "Found: $($foundFiles -join ', ')"
-          
+
+          Write-Output "Found: boot.wim$(if ($hasWim) {', install.wim'})$(if ($hasEsd) {', install.esd'})"
+
           # Persist drive letter for next steps
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_DRIVE=$driveLetter"
-          
+
       - name: Prepare autounattend.xml
         shell: powershell
         run: |
@@ -200,61 +215,62 @@ jobs:
             Copy-Item "autounattend.xml" "scripts\autounattend.xml" -Force
             Write-Output "Copied to scripts directory"
           } else {
-            Write-Warning "autounattend.xml not found in root!"
+            Write-Error "autounattend.xml not found in root!"
+            exit 1
           }
-          
+
       - name: Verify headless script
         shell: powershell
         run: |
           $scriptPath = ".\scripts\tiny11maker-headless.ps1"
-          
+
           if (-not (Test-Path $scriptPath)) {
             Write-Error "Headless script not found at $scriptPath"
             Write-Output "Available files:"
             Get-ChildItem -Path . -Recurse -Filter "*.ps1" | ForEach-Object { Write-Output $_.FullName }
             exit 1
           }
-          
+
           Write-Output "Headless script found: $scriptPath"
-          
+
       - name: Run tiny11maker (headless mode)
         shell: powershell
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          
+
           $params = @{
             ISO = $env:ISO_DRIVE
             INDEX = [int]"${{ github.event.inputs.image_index }}"
           }
-          
+
           if ("${{ github.event.inputs.skip_cleanup }}" -eq "true") {
             $params.SkipCleanup = $true
             Write-Output "Cleanup will be skipped (debugging mode)"
           }
-          
+
           Write-Output "=== Starting Tiny11 Builder ==="
           Write-Output "ISO Drive: $($params.ISO)"
           Write-Output "Image Index: $($params.INDEX)"
           Write-Output "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-          
+
           $startTime = Get-Date
-          
+
           .\scripts\tiny11maker-headless.ps1 @params
-          
+
           $buildTime = (Get-Date) - $startTime
           Write-Output "Build completed in $($buildTime.TotalMinutes.ToString('F2')) minutes"
-          
+
       - name: Verify tiny11 ISO creation
         shell: powershell
         run: |
           $tempIso = ".\scripts\tiny11.iso"
-          $isoName = "${{ env.ISO_FILENAME }}"
+          $isoName = $env:ISO_FILENAME
 
           # Check if ISO was created
           if (-not (Test-Path $tempIso)) {
             Write-Error "$tempIso was not created!"
-            Write-Output "Contents of current directory:"
-            Get-ChildItem -Path . | Format-Table Name, Length, LastWriteTime
+            Write-Output "Contents of scripts directory:"
+            Get-ChildItem -Path ".\scripts" | Format-Table Name, Length, LastWriteTime
             exit 1
           }
 
@@ -274,8 +290,8 @@ jobs:
           "$sha256  $isoName" | Out-File -FilePath "$isoName.sha256" -Encoding ASCII
           "$md5  $isoName" | Out-File -FilePath "$isoName.md5" -Encoding ASCII
 
-          # Create verification file with all info
-          $verificationInfo = @"
+          # Create verification file
+          @"
           Tiny11 ISO Verification
           ========================
           File: $isoName
@@ -290,9 +306,7 @@ jobs:
           To verify:
             certutil -hashfile $isoName SHA256
             certutil -hashfile $isoName MD5
-          "@
-
-          $verificationInfo | Out-File -FilePath "$isoName.txt" -Encoding UTF8
+          "@ | Out-File -FilePath "$isoName.txt" -Encoding UTF8
 
           # Persist values for later steps
           Add-Content -Path $env:GITHUB_ENV -Value "ISO_NAME=$isoName"
@@ -304,41 +318,25 @@ jobs:
         shell: powershell
         run: |
           Write-Output "Cleaning up to free disk space..."
-          
+
           # Unmount ISO
           $isoPath = Join-Path $PWD "Win11_Source.iso"
           if (Test-Path $isoPath) {
             Get-DiskImage -ImagePath $isoPath | Dismount-DiskImage -ErrorAction SilentlyContinue
             Write-Output "ISO unmounted"
           }
-          
+
           # Remove source ISO
           Remove-Item "Win11_Source.iso" -Force -ErrorAction SilentlyContinue
-          
+
           # Remove build logs if they're large
           Get-ChildItem -Path . -Filter "*.log" | Where-Object { $_.Length -gt 10MB } | Remove-Item -Force
-          
+
           $disk = Get-PSDrive C
           $freeGB = [math]::Round($disk.Free / 1GB, 2)
           Write-Output "Available space after cleanup: ${freeGB}GB"
 
-      - name: Check upload configuration
-        id: check-upload
-        shell: powershell
-        env:
-          SF_KEY: ${{ secrets.SF_SSH_KEY }}
-          ENABLE_UPLOAD: ${{ vars.ENABLE_SOURCEFORGE_UPLOAD }}
-        run: |
-          if ($env:ENABLE_UPLOAD -eq 'true' -or -not [string]::IsNullOrWhiteSpace($env:SF_KEY)) {
-            Write-Output "Upload condition met."
-            "DO_UPLOAD=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          } else {
-            Write-Output "Upload condition NOT met. Fallback to artifacts."
-            "DO_UPLOAD=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          }
-          
-      - name: Upload ISO as artifact (fallback)
-        if: env.DO_UPLOAD != 'true'
+      - name: Upload ISO as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ISO_NAME }}
@@ -354,20 +352,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Tiny11 Windows 11 ${{ github.event.inputs.windows_version }} - ${{ env.RELEASE_TAG }}
+          name: Tiny11 Windows 11 ${{ github.event.inputs.windows_version }} - ${{ env.EDITION_NAME }}
           body: |
             ## 🚀 Tiny11 Windows 11 ${{ github.event.inputs.windows_version }} Build
-
-            **Automated build by kelexine's workflow**
 
             ### 📦 Build Information
             - **Built with:** [tiny11builder](https://github.com/ntdevlabs/tiny11builder) by ntdevlabs
             - **Modified by:** [kelexine](https://github.com/kelexine)
-            - **Build Date:** ${{ github.event.repository.updated_at }}
             - **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-            ### 📥 Download
-            ${{ secrets.SF_SSH_KEY != '' && format('**SourceForge:** [{0}]({1})', env.ISO_NAME, env.SF_DOWNLOAD_URL) || '**GitHub Artifacts:** Check workflow run for download' }}
 
             ### 💿 Image Details
             | Property | Value |
@@ -376,11 +368,10 @@ jobs:
             | **Size** | ${{ env.ISO_SIZE_GB }}GB |
             | **Type** | Standard (Serviceable) |
             | **Base** | Windows 11 ${{ github.event.inputs.windows_version }} |
-            | **Index** | ${{ github.event.inputs.image_index }} |
+            | **Edition** | ${{ env.EDITION_NAME }} |
             | **Language** | ${{ github.event.inputs.language }} |
 
             ### 🔒 Checksums
-
             **SHA256:**
             ```
             ${{ env.ISO_SHA256 }}
@@ -401,17 +392,14 @@ jobs:
             - Bloatware (Clipchamp, News, Weather, etc.)
 
             ### ✅ Features
-            - ✅ Fully serviceable - Can add languages, updates, features
-            - ✅ Bypasses TPM 2.0, Secure Boot, CPU, RAM requirements
-            - ✅ Local account support on OOBE
-            - ✅ Disabled telemetry and tracking
-            - ✅ Compact installation (~3-5GB)
-            - ✅ Faster boot and performance
+            - Fully serviceable — can add languages, updates, features
+            - Bypasses TPM 2.0, Secure Boot, CPU, RAM requirements
+            - Local account support on OOBE
+            - Disabled telemetry and tracking
+            - Compact installation (~3-5GB)
+
             ---
-
-            **⚠️ Disclaimer:** This is an unofficial Windows 11 modification. Use at your own risk. Not affiliated with Microsoft.
-
-            **📜 License:** Educational purposes only. Requires valid Windows license from Microsoft.
+            **⚠️ Disclaimer:** Unofficial Windows 11 modification. Use at your own risk. Requires valid Windows license.
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -419,39 +407,26 @@ jobs:
             ${{ env.ISO_NAME }}.sha256
             ${{ env.ISO_NAME }}.md5
             ${{ env.ISO_NAME }}.txt
-          
+
       - name: Workflow summary
+        if: always()
         shell: powershell
         run: |
+          $status = if ($env:ISO_NAME) { "✅ Completed" } else { "❌ Failed" }
           $summary = @"
-          # ✅ Tiny11 Build Completed Successfully
+          # $status Tiny11 Build
 
-          ## 📦 Build Information
-          - **ISO:** $env:ISO_NAME
-          - **Size:** $env:ISO_SIZE_GB GB
-          - **Release:** ${{ env.RELEASE_TAG }}
-          - **Version:** ${{ github.event.inputs.windows_version }}
-          - **Language:** ${{ github.event.inputs.language }}
-          - **Image Index:** ${{ github.event.inputs.image_index }}
+          | Property | Value |
+          |----------|-------|
+          | **ISO** | $env:ISO_NAME |
+          | **Size** | $env:ISO_SIZE_GB GB |
+          | **Release** | ${{ env.RELEASE_TAG }} |
+          | **Version** | ${{ github.event.inputs.windows_version }} |
+          | **Edition** | $env:EDITION_NAME |
+          | **Language** | ${{ github.event.inputs.language }} |
+          | **SHA256** | $env:ISO_SHA256 |
 
-          ## 📥 Download
-          ${{ secrets.SF_SSH_KEY != '' && format('🔗 **SourceForge:** [{0}]({1})', env.ISO_NAME, env.SF_DOWNLOAD_URL) || '🔗 **GitHub Artifacts:** Available in workflow run' }}
-
-          ## 🔒 Checksums
-          **SHA256:** ``````
-          $env:ISO_SHA256
-          ``````
-
-          **MD5:** ``````
-          $env:ISO_MD5
-          ``````
-
-          ## ⏱️ Build Time
           Completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
-
-          ---
-          Built by [kelexine](https://github.com/kelexine) | Original by [ntdevlabs](https://github.com/ntdevlabs)
           "@
 
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
-          
