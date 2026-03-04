@@ -37,9 +37,8 @@ env:
   ARIA2C_SPLIT: '16'
   POWERSHELL_TELEMETRY_OPTOUT: '1'
   # Dynamically set during build — defaults silence linter warnings
-  RELEASE_TAG: ''
-  ISO_FILENAME: ''
-  ISO_NAME: ''
+  RELEASE_TAG: 'tiny11-build'
+  ISO_NAME: 'Tiny11-unnamed.iso'
 
   EDITION_NAME: ''
   ISO_DRIVE: ''
@@ -87,10 +86,10 @@ jobs:
           Write-Output "Generated ISO name: $isoName"
 
 
-          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_TAG=$baseTag"
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_FILENAME=$isoName"
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_TAG=$baseTag" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "ISO_NAME=$isoName" -Encoding utf8
 
-          Add-Content -Path $env:GITHUB_ENV -Value "EDITION_NAME=$edition"
+          Add-Content -Path $env:GITHUB_ENV -Value "EDITION_NAME=$edition" -Encoding utf8
 
       - name: System information
         shell: powershell
@@ -205,7 +204,7 @@ jobs:
           Write-Output "Found: boot.wim$(if ($hasWim) {', install.wim'})$(if ($hasEsd) {', install.esd'})"
 
           # Persist drive letter for next steps
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_DRIVE=$driveLetter"
+          Add-Content -Path $env:GITHUB_ENV -Value "ISO_DRIVE=$driveLetter" -Encoding utf8
 
       - name: Prepare autounattend.xml
         shell: powershell
@@ -264,7 +263,7 @@ jobs:
         shell: powershell
         run: |
           $tempIso = ".\scripts\tiny11.iso"
-          $isoName = $env:ISO_FILENAME
+          $isoName = $env:ISO_NAME
 
           # Check if ISO was created
           if (-not (Test-Path $tempIso)) {
@@ -309,10 +308,9 @@ jobs:
           "@ | Out-File -FilePath "$isoName.txt" -Encoding UTF8
 
           # Persist values for later steps
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_NAME=$isoName"
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_SIZE_GB=$sizeGB"
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_SHA256=$sha256"
-          Add-Content -Path $env:GITHUB_ENV -Value "ISO_MD5=$md5"
+          Add-Content -Path $env:GITHUB_ENV -Value "ISO_SIZE_GB=$sizeGB" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "ISO_SHA256=$sha256" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "ISO_MD5=$md5" -Encoding utf8
 
       - name: Cleanup before upload
         shell: powershell
@@ -339,7 +337,7 @@ jobs:
       - name: Upload ISO as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ISO_NAME }}
+          name: ${{ env.RELEASE_TAG }}
           path: |
             ${{ env.ISO_NAME }}
             ${{ env.ISO_NAME }}.sha256
@@ -412,21 +410,25 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          $status = if ($env:ISO_NAME) { "✅ Completed" } else { "❌ Failed" }
+          $isoExists = Test-Path $env:ISO_NAME
+          $status = if ($isoExists) { "✅ Completed" } else { "❌ Failed" }
+          $size = if ($env:ISO_SIZE_GB) { "$env:ISO_SIZE_GB GB" } else { "N/A" }
+          $sha = if ($env:ISO_SHA256) { $env:ISO_SHA256 } else { "N/A" }
+
           $summary = @"
           # $status Tiny11 Build
 
           | Property | Value |
           |----------|-------|
-          | **ISO** | $env:ISO_NAME |
-          | **Size** | $env:ISO_SIZE_GB GB |
+          | **ISO** | $($env:ISO_NAME) |
+          | **Size** | $size |
           | **Release** | ${{ env.RELEASE_TAG }} |
           | **Version** | ${{ github.event.inputs.windows_version }} |
-          | **Edition** | $env:EDITION_NAME |
+          | **Edition** | $($env:EDITION_NAME) |
           | **Language** | ${{ github.event.inputs.language }} |
-          | **SHA256** | $env:ISO_SHA256 |
+          | **SHA256** | $sha |
 
           Completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
           "@
 
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary -Encoding utf8
